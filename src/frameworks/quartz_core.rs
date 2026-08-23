@@ -13,7 +13,7 @@ declare_class!(
         const NAME: &'static str = "CAMetalLayer";
     }
 
-    unsafe impl DeclaredClass for CAMetalLayer {}
+    impl DeclaredClass for CAMetalLayer {}
 
     unsafe impl CAMetalLayer {
         #[method(init)]
@@ -62,7 +62,7 @@ declare_class!(
         const NAME: &'static str = "CAMetalDrawable";
     }
 
-    unsafe impl DeclaredClass for CAMetalDrawable {}
+    impl DeclaredClass for CAMetalDrawable {}
 
     unsafe impl CAMetalDrawable {
         #[method(initWithLayer:textureIndex:)]
