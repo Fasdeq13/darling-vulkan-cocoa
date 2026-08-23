@@ -1,0 +1,30 @@
+[package]
+name = "vulkan-cocoa-core-tools"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Standalone dev/CI utilities for vulkan-cocoa-core: bitcode inspection, bundle packaging, repo stats, shm surface monitoring, and Vulkan layer manifest validation."
+
+[[bin]]
+name = "air-header-inspect"
+path = "src/bin/air_header_inspect.rs"
+
+[[bin]]
+name = "make-app-bundle"
+path = "src/bin/make_app_bundle.rs"
+
+[[bin]]
+name = "repo-stats"
+path = "src/bin/repo_stats.rs"
+
+[[bin]]
+name = "surface-monitor"
+path = "src/bin/surface_monitor.rs"
+
+[[bin]]
+name = "vk-layer-manifest-check"
+path = "src/bin/vk_layer_manifest_check.rs"
+
+[dependencies]
+serde_json = "1"

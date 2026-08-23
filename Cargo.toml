@@ -1,3 +1,6 @@
+[workspace]
+members = ["tools"]
+
 [package]
 name = "vulkan-cocoa-core"
 version = "0.1.0"
@@ -8,7 +11,7 @@ description = "Vulkan-on-Darwin compositor backend for ravynOS"
 [lib]
 name = "vulkan_cocoa_core_bridge"
 path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 ash = { version = "0.38", features = ["linked"] }
@@ -18,6 +21,7 @@ log = "0.4"
 bitflags = "2.0"
 parking_lot = "0.12"
 ctor = "0.2"
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5.2"
@@ -26,9 +30,6 @@ objc2-app-kit = "0.2.2"
 objc2-quartz-core = "0.2.2"
 core-foundation = "0.10"
 mach2 = "0.4"
-
-[build-dependencies]
-cc = "1.0"
 
 [profile.release]
 opt-level = 3

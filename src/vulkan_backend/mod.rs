@@ -1,11 +1,10 @@
 pub mod resource;
-pub mod state_machine;
 pub mod swapchain;
 
 use ash::khr::{surface, swapchain as khr_swapchain};
 use ash::vk;
 use ash::{Device, Instance};
-use state_machine::SharedDevice;
+use swapchain::SharedDevice;
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::sync::Arc;

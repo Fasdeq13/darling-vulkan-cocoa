@@ -143,7 +143,7 @@ declare_class!(
     }
 );
 
-static mut G_SHARED_DEVICE: Option<Arc<SharedDevice>> = None;
+pub static mut G_SHARED_DEVICE: Option<Arc<SharedDevice>> = None;
 
 pub fn set_global_shared_device(shared: Arc<SharedDevice>) {
     unsafe {

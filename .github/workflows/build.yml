@@ -1,0 +1,82 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: cargo check + clippy (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check (workspace)
+        run: cargo check --workspace --all-targets
+
+      - name: cargo clippy (workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  build-release:
+    name: Build staticlib + tools (release)
+    runs-on: macos-latest
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace (staticlib + rlib + tools, release)
+        run: cargo build --release --workspace
+
+      - name: Package release archive
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          STAGE="vulkan-cocoa-core-${VERSION}-macos"
+          mkdir -p "${STAGE}/lib" "${STAGE}/bin"
+
+          cp target/release/libvulkan_cocoa_core_bridge.a "${STAGE}/lib/"
+
+          for bin in air-header-inspect make-app-bundle repo-stats surface-monitor vk-layer-manifest-check; do
+            cp "target/release/${bin}" "${STAGE}/bin/"
+          done
+
+          cp README.md LICENSE "${STAGE}/"
+
+          zip -r "${STAGE}.zip" "${STAGE}"
+          shasum -a 256 "${STAGE}.zip" > "${STAGE}.zip.sha256"
+
+          echo "ARCHIVE_PATH=${STAGE}.zip" >> "$GITHUB_ENV"
+          echo "CHECKSUM_PATH=${STAGE}.zip.sha256" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            "${ARCHIVE_PATH}" "${CHECKSUM_PATH}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
