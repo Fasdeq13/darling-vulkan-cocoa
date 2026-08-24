@@ -162,7 +162,7 @@ pub fn import_opaque_fd(
         .samples(vk::SampleCountFlags::TYPE_1)
         .tiling(vk::ImageTiling::OPTIMAL)
         .usage(
-            vk::ImageUsageFlags::SAMPLED_BIT
+            vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_DST
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,
         )
