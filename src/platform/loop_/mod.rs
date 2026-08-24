@@ -1,14 +1,17 @@
 use libc::{kqueue, timespec};
 use mach2::kern_return::KERN_SUCCESS;
+use mach2::mach_port::{mach_port_allocate, mach_port_deallocate};
 use mach2::message::{mach_msg, mach_msg_header_t, MACH_MSG_SUCCESS, MACH_RCV_MSG, MACH_RCV_TIMEOUT};
-use mach2::port::{
-    mach_port_allocate, mach_port_deallocate, mach_port_insert_member, mach_port_t, MACH_PORT_NULL,
-    MACH_PORT_RIGHT_PORT_SET, MACH_PORT_RIGHT_RECEIVE,
-};
+use mach2::port::{mach_port_t, MACH_PORT_NULL, MACH_PORT_RIGHT_PORT_SET, MACH_PORT_RIGHT_RECEIVE};
 use mach2::traps::mach_task_self;
+use mach2::kern_return::kern_return_t;
 use std::os::raw::c_int;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+
+extern "C" {
+    fn mach_port_insert_member(task: mach2::port::mach_port_t, member: mach2::port::mach_port_name_t, after: mach2::port::mach_port_name_t) -> kern_return_t;
+}
 
 const MAX_EVENTS: usize = 64;
 const MAX_TIMERS: usize = 32;
