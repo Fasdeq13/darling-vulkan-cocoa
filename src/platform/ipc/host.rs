@@ -6,11 +6,9 @@ use mach2::message::{
     mach_msg, mach_msg_header_t, mach_msg_return_t, MACH_MSG_SUCCESS, MACH_MSG_TYPE_MAKE_SEND, MACH_RCV_MSG,
     MACH_RCV_TIMEOUT,
 };
-use mach2::port::{
-    mach_port_allocate, mach_port_deallocate, mach_port_insert_right, mach_port_mod_refs, mach_port_t,
-    MACH_PORT_NULL, MACH_PORT_RIGHT_RECEIVE,
-};
-use mach2::traps::{mach_task_self, mach_task_self_};
+use mach2::mach_port::{mach_port_allocate, mach_port_deallocate, mach_port_insert_right, mach_port_mod_refs};
+use mach2::port::{mach_port_t, MACH_PORT_NULL, MACH_PORT_RIGHT_RECEIVE};
+use mach2::traps::mach_task_self;
 use std::collections::VecDeque;
 use std::ffi::CString;
 use std::sync::Mutex;
@@ -281,7 +279,7 @@ impl Drop for CompositorHost {
         }
         if inner.service_port != MACH_PORT_NULL {
             unsafe {
-                mach_port_mod_refs(mach_task_self_(), inner.service_port, MACH_PORT_RIGHT_RECEIVE, -1);
+                mach_port_mod_refs(mach_task_self(), inner.service_port, MACH_PORT_RIGHT_RECEIVE, -1);
             }
         }
     }
