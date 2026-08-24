@@ -161,8 +161,8 @@ impl WindowRenderContext {
     }
 
     fn build_swapchain(&mut self, want_w: u32, want_h: u32) -> Result<(), SwapchainError> {
-        let _ = self.shared.device.device_wait_idle();
         unsafe {
+            let _ = self.shared.device.device_wait_idle();
             self.destroy_swapchain_resources();
         }
 
