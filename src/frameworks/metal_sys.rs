@@ -1,6 +1,6 @@
 use crate::vulkan_backend::swapchain::SharedDevice;
 use ash::vk;
-use objc2::{declare_class, msg_send, mutability, rc::Id, runtime::NSObject, DeclaredClass};
+use objc2::{class, declare_class, msg_send, mutability, rc::Id, runtime::NSObject, ClassType, DeclaredClass};
 use std::sync::Arc;
 
 declare_class!(
