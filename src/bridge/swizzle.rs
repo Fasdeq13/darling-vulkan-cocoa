@@ -60,18 +60,22 @@ unsafe fn add_or_replace(cls: Class, sel_name: &str, imp: Imp, types: &str, fres
     }
 }
 
+struct SendableId(Id);
+unsafe impl Send for SendableId {}
+unsafe impl Sync for SendableId {}
+
 extern "C" fn shared_application_impl(_cls: Class, _sel: Sel) -> Id {
-    static APP: OnceLock<std::sync::Mutex<Id>> = OnceLock::new();
-    let cell = APP.get_or_init(|| std::sync::Mutex::new(std::ptr::null_mut()));
+    static APP: OnceLock<std::sync::Mutex<SendableId>> = OnceLock::new();
+    let cell = APP.get_or_init(|| std::sync::Mutex::new(SendableId(std::ptr::null_mut())));
     let mut guard = cell.lock().expect("shared application mutex poisoned");
-    if guard.is_null() {
+    if guard.0.is_null() {
         unsafe {
             let cls = class("NSApplication");
             let obj = send0_id(cls, sel("alloc"));
-            *guard = send0_id(obj, sel("init"));
+            guard.0 = send0_id(obj, sel("init"));
         }
     }
-    *guard
+    guard.0
 }
 
 extern "C" fn run_impl(_recv: Id, _sel_: Sel) {
