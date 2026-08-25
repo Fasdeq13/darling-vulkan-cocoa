@@ -1,3 +1,11 @@
+Check discussions
+
+
+
+
+
+
+
 # 🌟 vulkan-cocoa-core (QMV Core Engine)
 
 ## 🗺️ Select Language / Выберите язык
