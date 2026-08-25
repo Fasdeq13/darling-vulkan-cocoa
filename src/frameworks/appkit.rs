@@ -47,10 +47,6 @@ extern "C" {
     pub fn CFRunLoopRun();
 }
 
-pub fn raw_msg_send() -> *const c_void {
-    objc_msgSend as *const c_void
-}
-
 pub fn sel(name: &str) -> Sel {
     let c = CString::new(name).expect("selector name had a NUL byte");
     unsafe { sel_registerName(c.as_ptr()) }
@@ -79,38 +75,6 @@ pub unsafe fn send0_bool(recv: Id, s: Sel) -> bool {
 pub unsafe fn send0_u64(recv: Id, s: Sel) -> u64 {
     let f: unsafe extern "C" fn(Id, Sel) -> u64 = std::mem::transmute(objc_msgSend as *const ());
     f(recv, s)
-}
-
-pub unsafe fn send0_i64(recv: Id, s: Sel) -> i64 {
-    let f: unsafe extern "C" fn(Id, Sel) -> i64 = std::mem::transmute(objc_msgSend as *const ());
-    f(recv, s)
-}
-
-pub unsafe fn send0_f64(recv: Id, s: Sel) -> f64 {
-    let f: unsafe extern "C" fn(Id, Sel) -> f64 = std::mem::transmute(objc_msgSend as *const ());
-    f(recv, s)
-}
-
-#[repr(C)]
-pub struct NSRange {
-    pub location: u64,
-    pub length: u64,
-}
-
-pub unsafe fn send_get_characters(recv: Id, s: Sel, buf: *mut u16, range: NSRange) {
-    let f: unsafe extern "C" fn(Id, Sel, *mut u16, NSRange) = std::mem::transmute(objc_msgSend as *const ());
-    f(recv, s, buf, range)
-}
-
-pub unsafe fn send0_point(recv: Id, s: Sel) -> (f64, f64) {
-    #[repr(C)]
-    struct CGPoint {
-        x: f64,
-        y: f64,
-    }
-    let f: unsafe extern "C" fn(Id, Sel) -> CGPoint = std::mem::transmute(objc_msgSend as *const ());
-    let p = f(recv, s);
-    (p.x, p.y)
 }
 
 pub unsafe fn send0_rect(recv: Id, s: Sel) -> NSRect {

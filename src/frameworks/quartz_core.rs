@@ -1,6 +1,7 @@
 use crate::vulkan_backend::swapchain::WindowRenderContext;
 use ash::vk;
-use objc2::{class, declare_class, msg_send, mutability, rc::Id, runtime::NSObject, ClassType, DeclaredClass};
+use objc2::{declare_class, msg_send, mutability, rc::Id, runtime::NSObject, DeclaredClass};
+use objc2_foundation::NSRect;
 use std::sync::{Arc, Mutex};
 
 declare_class!(
@@ -12,7 +13,7 @@ declare_class!(
         const NAME: &'static str = "CAMetalLayer";
     }
 
-    impl DeclaredClass for CAMetalLayer {}
+    unsafe impl DeclaredClass for CAMetalLayer {}
 
     unsafe impl CAMetalLayer {
         #[method(init)]
@@ -61,7 +62,7 @@ declare_class!(
         const NAME: &'static str = "CAMetalDrawable";
     }
 
-    impl DeclaredClass for CAMetalDrawable {}
+    unsafe impl DeclaredClass for CAMetalDrawable {}
 
     unsafe impl CAMetalDrawable {
         #[method(initWithLayer:textureIndex:)]

@@ -48,14 +48,12 @@ impl Default for PendingResize {
 }
 
 impl PendingResize {
-    #[inline(always)]
     pub fn request(&self, width: u32, height: u32) {
         self.width.store(width, Ordering::Release);
         self.height.store(height, Ordering::Release);
         self.flag.store(true, Ordering::Release);
     }
 
-    #[inline(always)]
     pub fn take(&self) -> Option<(u32, u32)> {
         if self.flag.swap(false, Ordering::AcqRel) {
             Some((
@@ -196,17 +194,10 @@ impl WindowRenderContext {
         if present_modes.is_empty() {
             return Err(SwapchainError::NoPresentModes);
         }
-        
         let present_mode = present_modes
             .iter()
             .copied()
             .find(|&m| m == vk::PresentModeKHR::MAILBOX)
-            .or_else(|| {
-                present_modes
-                    .iter()
-                    .copied()
-                    .find(|&m| m == vk::PresentModeKHR::IMMEDIATE)
-            })
             .unwrap_or(vk::PresentModeKHR::FIFO);
 
         let extent = if caps.current_extent.width != u32::MAX {
@@ -225,7 +216,6 @@ impl WindowRenderContext {
         if caps.max_image_count > 0 {
             image_count = image_count.min(caps.max_image_count);
         }
-        image_count = image_count.max(if present_mode == vk::PresentModeKHR::MAILBOX { 3 } else { 2 });
         image_count = image_count.min(MAX_FRAMES_IN_FLIGHT as u32);
 
         let old_swapchain = self.swapchain;
@@ -280,10 +270,32 @@ impl WindowRenderContext {
                 unsafe { self.shared.device.create_image_view(&view_info, None) }
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        let color_attachment = vk::AttachmentDescription::default()
+            .format(self.format)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+        let color_ref = vk::AttachmentReference::default()
+            .attachment(0)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+        let color_refs = [color_ref];
+        let subpass = vk::SubpassDescription::default()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(&color_refs);
+        let dependency = vk::SubpassDependency::default()
+            .src_subpass(vk::SUBPASS_EXTERNAL)
+            .dst_subpass(0)
+            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
         let attachments = [color_attachment];
         let subpasses = [subpass];
         let dependencies = [dependency];
-
         let rp_info = vk::RenderPassCreateInfo::default()
             .attachments(&attachments)
             .subpasses(&subpasses)
@@ -329,6 +341,7 @@ impl WindowRenderContext {
     }
 
     unsafe fn destroy_swapchain_resources(&mut self) {
+        let _ = self.shared.device.device_wait_idle();
         if !self.command_buffers.is_empty() {
             self.shared
                 .device
@@ -350,12 +363,10 @@ impl WindowRenderContext {
         self.images.clear();
     }
 
-    #[inline(always)]
     pub fn request_resize(&self, width: u32, height: u32) {
         self.pending_resize.request(width, height);
     }
 
-    #[inline(always)]
     pub fn tick(&mut self) -> Result<TickOutcome, SwapchainError> {
         if let Some((w, h)) = self.pending_resize.take() {
             self.state = WindowRenderState::Recreating;
@@ -375,7 +386,7 @@ impl WindowRenderContext {
         let acquire = unsafe {
             self.shared.swapchain_ext.acquire_next_image(
                 self.swapchain,
-                0,
+                u64::MAX,
                 image_available,
                 vk::Fence::null(),
             )
@@ -383,32 +394,14 @@ impl WindowRenderContext {
 
         let image_index = match acquire {
             Ok((idx, false)) => idx,
-            Ok((idx, true)) => {
+            Ok((_, true)) => {
                 let (w, h) = (self.extent.width, self.extent.height);
                 self.state = WindowRenderState::Recreating;
                 self.build_swapchain(w, h)?;
                 self.state = WindowRenderState::Ready;
-                return Ok(TickOutcome::Acquired {
-                    image_index: idx,
-                    command_buffer: self.command_buffers[idx as usize],
-                    framebuffer: self.framebuffers[idx as usize],
-                    render_pass: self.render_pass,
-                    extent: self.extent,
-                });
+                return Ok(TickOutcome::Recreated);
             }
-            Err(vk::Result::NOT_READY) | Err(vk::Result::TIMEOUT) => {
-                let next_idx = (self.current_frame + 1) % self.frames.len();
-                let next_in_flight = self.frames[next_idx].in_flight;
-                unsafe {
-                    let fence_signaled = self.shared.device.get_fence_status(next_in_flight).unwrap_or(false);
-                    if !fence_signaled {
-                        return Err(vk::Result::TIMEOUT.into());
-                    }
-                }
-                self.current_frame = next_idx;
-                return self.tick();
-            }
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) | Err(vk::Result::SUBOPTIMAL_KHR) => {
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                 let (w, h) = (self.extent.width, self.extent.height);
                 self.state = WindowRenderState::Recreating;
                 self.build_swapchain(w, h)?;
@@ -431,7 +424,6 @@ impl WindowRenderContext {
         })
     }
 
-    #[inline(always)]
     pub fn submit_and_present(&mut self, image_index: u32) -> Result<(), SwapchainError> {
         let frame_idx = self.current_frame;
         let image_available = self.frames[frame_idx].image_available;

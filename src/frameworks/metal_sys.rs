@@ -1,6 +1,6 @@
 use crate::vulkan_backend::swapchain::SharedDevice;
 use ash::vk;
-use objc2::{class, declare_class, msg_send, mutability, rc::Id, runtime::NSObject, AnyThread, ClassType, DeclaredClass};
+use objc2::{declare_class, msg_send, mutability, rc::Id, runtime::NSObject, DeclaredClass};
 use std::sync::Arc;
 
 declare_class!(
@@ -12,12 +12,19 @@ declare_class!(
         const NAME: &'static str = "MTLDevice";
     }
 
-    impl DeclaredClass for MTLDevice {}
+    unsafe impl DeclaredClass for MTLDevice {}
 
     unsafe impl MTLDevice {
         #[method(newCommandQueue)]
         fn new_command_queue(&self) -> Option<Id<NSObject>> {
-            MTLCommandQueue::new_with_device(self).map(|q| unsafe { Id::cast(q) })
+            let queue: Option<Id<NSObject>> = unsafe { msg_send![class!(MTLCommandQueue), alloc] };
+            if let Some(q) = queue {
+                unsafe {
+                    let _: () = msg_send![&q, initWithDevice: self];
+                }
+                return Some(q);
+            }
+            None
         }
     }
 );
@@ -31,22 +38,27 @@ declare_class!(
         const NAME: &'static str = "MTLCommandQueue";
     }
 
-    impl DeclaredClass for MTLCommandQueue {}
+    unsafe impl DeclaredClass for MTLCommandQueue {}
 
     unsafe impl MTLCommandQueue {
+        #[method(initWithDevice:)]
+        fn init_with_device(&mut self, _device: &MTLDevice) -> Option<Id<Self>> {
+            unsafe { msg_send![super(this), init] }
+        }
+
         #[method(commandBuffer)]
         fn command_buffer(&self) -> Option<Id<NSObject>> {
-            MTLCommandBuffer::new_with_queue(self).map(|c| unsafe { Id::cast(c) })
+            let cb: Option<Id<NSObject>> = unsafe { msg_send![class!(MTLCommandBuffer), alloc] };
+            if let Some(c) = cb {
+                unsafe {
+                    let _: () = msg_send![&c, initWithQueue: self];
+                }
+                return Some(c);
+            }
+            None
         }
     }
 );
-
-impl MTLCommandQueue {
-    pub fn new_with_device(_device: &MTLDevice) -> Option<Id<Self>> {
-        let obj: Option<Id<Self>> = unsafe { msg_send![Self::alloc(), init] };
-        obj
-    }
-}
 
 declare_class!(
     pub struct MTLCommandBuffer;
@@ -57,12 +69,24 @@ declare_class!(
         const NAME: &'static str = "MTLCommandBuffer";
     }
 
-    impl DeclaredClass for MTLCommandBuffer {}
+    unsafe impl DeclaredClass for MTLCommandBuffer {}
 
     unsafe impl MTLCommandBuffer {
+        #[method(initWithQueue:)]
+        fn init_with_queue(&mut self, _queue: &MTLCommandQueue) -> Option<Id<Self>> {
+            unsafe { msg_send![super(this), init] }
+        }
+
         #[method(renderCommandEncoderWithDescriptor:)]
         fn render_command_encoder(&self, _descriptor: &NSObject) -> Option<Id<NSObject>> {
-            MTLRenderCommandEncoder::new_with_command_buffer(self).map(|e| unsafe { Id::cast(e) })
+            let encoder: Option<Id<NSObject>> = unsafe { msg_send![class!(MTLRenderCommandEncoder), alloc] };
+            if let Some(e) = encoder {
+                unsafe {
+                    let _: () = msg_send![&e, initWithCommandBuffer: self];
+                }
+                return Some(e);
+            }
+            None
         }
 
         #[method(commit)]
@@ -78,13 +102,6 @@ declare_class!(
     }
 );
 
-impl MTLCommandBuffer {
-    pub fn new_with_queue(_queue: &MTLCommandQueue) -> Option<Id<Self>> {
-        let obj: Option<Id<Self>> = unsafe { msg_send![Self::alloc(), init] };
-        obj
-    }
-}
-
 declare_class!(
     pub struct MTLRenderCommandEncoder;
 
@@ -94,9 +111,14 @@ declare_class!(
         const NAME: &'static str = "MTLRenderCommandEncoder";
     }
 
-    impl DeclaredClass for MTLRenderCommandEncoder {}
+    unsafe impl DeclaredClass for MTLRenderCommandEncoder {}
 
     unsafe impl MTLRenderCommandEncoder {
+        #[method(initWithCommandBuffer:)]
+        fn init_with_command_buffer(&mut self, _cb: &MTLCommandBuffer) -> Option<Id<Self>> {
+            unsafe { msg_send![super(this), init] }
+        }
+
         #[method(setRenderPipelineState:)]
         fn set_render_pipeline_state(&self, _state: &NSObject) {}
 
@@ -121,14 +143,7 @@ declare_class!(
     }
 );
 
-impl MTLRenderCommandEncoder {
-    pub fn new_with_command_buffer(_cb: &MTLCommandBuffer) -> Option<Id<Self>> {
-        let obj: Option<Id<Self>> = unsafe { msg_send![Self::alloc(), init] };
-        obj
-    }
-}
-
-pub static mut G_SHARED_DEVICE: Option<Arc<SharedDevice>> = None;
+static mut G_SHARED_DEVICE: Option<Arc<SharedDevice>> = None;
 
 pub fn set_global_shared_device(shared: Arc<SharedDevice>) {
     unsafe {

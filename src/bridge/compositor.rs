@@ -1,103 +1,127 @@
-use crate::platform::ipc::host::{ClientSink, CompositorHost, FrameSink, IncomingFrame};
-use crate::platform::ipc::input_wire;
-use crate::platform::shm::sync_ring::ShmSync;
-use crate::vulkan_backend::resource::iosurface_import;
-use mach2::port::mach_port_t;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::os::raw::{c_char, c_void};
+use std::ffi::CString;
 
-struct LoggingFrameSink;
+#[repr(C)]
+pub struct QmvIncomingFrame {
+    pub client_token: u64,
+    pub surface_port: u32,
+    pub width: u32,
+    pub height: u32,
+    pub frame_index: u32,
+    pub received_at_mach_time: u64,
+}
 
-impl FrameSink for LoggingFrameSink {
-    fn on_frame(&self, frame: &IncomingFrame) {
-        match iosurface_import::resolve_from_mach_port(
-            frame.surface_port as mach_port_t,
-            Some(frame.width),
-            Some(frame.height),
-        ) {
-            Ok(resolved) => {
-                println!(
-                    "[QMV Compositor] Frame #{} verified. Token: {}. Resolution: {}x{}. Format: 0x{:X}",
-                    frame.frame_index, frame.client_token, resolved.width, resolved.height, resolved.pixel_format
-                );
-            }
-            Err(_) => {
-                println!(
-                    "[QMV Compositor] Frame #{} from token {} could not be resolved as an IOSurface",
-                    frame.frame_index, frame.client_token
-                );
-            }
+#[repr(C)]
+pub struct QmvResolvedSurface {
+    pub surface_ref: *mut c_void,
+    pub width: u32,
+    pub height: u32,
+    pub bytes_per_row: u32,
+    pub pixel_format: u32,
+}
+
+#[repr(C)]
+pub struct QmvInputEvent {
+    pub kind: u32,
+    pub client_token: u64,
+    pub window_id: u64,
+    pub timestamp_mach: u64,
+    pub x: f64,
+    pub y: f64,
+    pub delta_x: f64,
+    pub delta_y: f64,
+    pub button_number: u32,
+    pub key_code: u32,
+    pub modifier_flags: u32,
+    pub click_count: u32,
+    pub characters_utf16: [u16; 16],
+    pub characters_length: u32,
+}
+
+#[link(name = "native_core", kind = "static")]
+extern "C" {
+    fn qmv_compositor_host_create(service_name: *const c_char) -> *mut c_void;
+    fn qmv_compositor_host_set_frame_callback(
+        host: *mut c_void,
+        cb: extern "C" fn(*const QmvIncomingFrame, *mut c_void),
+        user_data: *mut c_void,
+    );
+    fn qmv_compositor_host_set_client_callback(
+        host: *mut c_void,
+        cb: extern "C" fn(u64, i32, i32, *mut c_void),
+        user_data: *mut c_void,
+    );
+    fn qmv_compositor_host_start(host: *mut c_void) -> i32;
+    fn qmv_compositor_host_destroy(host: *mut c_void);
+    
+    fn qmv_resolve_surface_from_frame(frame: *const QmvIncomingFrame, out: *mut QmvResolvedSurface) -> i32;
+    fn qmv_resolved_surface_release(resolved: *mut QmvResolvedSurface);
+    fn qmv_resolved_surface_is_in_use(resolved: *const QmvResolvedSurface) -> i32;
+
+    fn qmv_signals_send_mouse_moved(reply_port: u32, token: u64, win_id: u64, x: f64, y: f64, dx: f64, dy: f64) -> i32;
+    fn qmv_signals_send_key_event(reply_port: u32, token: u64, win_id: u64, is_down: i32, code: u32, mods: u32, chars: *const u16, len: u32) -> i32;
+
+    fn qmv_shm_sync_create(name: *const c_char, slot_count: u32) -> *mut c_void;
+    fn qmv_shm_sync_acquire_read_slot(sync: *mut c_void, out_idx: *mut u32) -> i32;
+    fn qmv_shm_sync_release_read_slot(sync: *mut c_void, idx: u32) -> i32;
+    fn qmv_shm_sync_destroy(sync: *mut c_void);
+}
+
+extern "C" fn on_frame_received(frame_ptr: *const QmvIncomingFrame, _user_data: *mut c_void) {
+    if frame_ptr.is_null() { return; }
+    
+    unsafe {
+        let frame = &*frame_ptr;
+        let mut resolved = std::mem::zeroed::<QmvResolvedSurface>();
+        
+        if qmv_resolve_surface_from_frame(frame_ptr, &mut resolved) == 0 {
+            println!(
+                "[QMV Compositor] Frame #{} verified. Token: {}. Resolution: {}x{}. Format: 0x{:X}", 
+                frame.frame_index, frame.client_token, resolved.width, resolved.height, resolved.pixel_format
+            );
+            
+            qmv_resolved_surface_release(&mut resolved);
         }
     }
 }
 
-struct LoggingClientSink;
-
-impl ClientSink for LoggingClientSink {
-    fn on_client_changed(&self, client_token: u64, pid: i32, connected: bool) {
-        let status = if connected { "Connected" } else { "Disconnected" };
-        println!(
-            "[QMV Compositor] Client process tracking status change -> PID: {pid}, Token: {client_token}, Status: {status}"
-        );
-    }
+extern "C" fn on_client_changed(token: u64, pid: i32, connected: i32, _user_data: *mut c_void) {
+    let status = if connected == 1 { "Connected" } else { "Disconnected" };
+    println!("[QMV Compositor] Client process tracking status change -> PID: {}, Token: {}, Status: {}", pid, token, status);
 }
 
 pub struct QmvServer {
-    host: Arc<CompositorHost>,
-    sync: ShmSync,
-    running: Arc<AtomicBool>,
-    poll_thread: Option<std::thread::JoinHandle<()>>,
+    raw_host: *mut c_void,
+    raw_sync: *mut c_void,
 }
 
 impl QmvServer {
     pub fn start(service_name: &str, shm_name: &str, slots: u32) -> Self {
-        let host = CompositorHost::create(service_name, Some(Box::new(LoggingFrameSink)), Some(Box::new(LoggingClientSink)))
-            .expect("Failed to initialize Mach IPC host");
-        let host = Arc::new(host);
+        let c_service = CString::new(service_name).unwrap();
+        let c_shm = CString::new(shm_name).unwrap();
+        
+        unsafe {
+            let host = qmv_compositor_host_create(c_service.as_ptr());
+            assert!(!host.is_null(), "Failed to initialize Mach IPC host");
+            
+            let sync = qmv_shm_sync_create(c_shm.as_ptr(), slots);
+            assert!(!sync.is_null(), "Failed to initialize SHM barrier");
 
-        let sync = ShmSync::create(shm_name, slots).expect("Failed to initialize SHM barrier");
-
-        let running = Arc::new(AtomicBool::new(true));
-        let poll_host = Arc::clone(&host);
-        let poll_running = Arc::clone(&running);
-        let poll_thread = std::thread::spawn(move || {
-            while poll_running.load(Ordering::Acquire) {
-                let _ = poll_host.run_once(50);
-            }
-        });
-
-        println!("[QMV Server] Core graphics pipeline and synchronization barriers deployment complete");
-
-        QmvServer {
-            host,
-            sync,
-            running,
-            poll_thread: Some(poll_thread),
+            qmv_compositor_host_set_frame_callback(host, on_frame_received, std::ptr::null_mut());
+            qmv_compositor_host_set_client_callback(host, on_client_changed, std::ptr::null_mut());
+            qmv_compositor_host_start(host);
+            
+            println!("[QMV Server] Core graphics pipeline and synchronization barriers deployment complete");
+            QmvServer { raw_host: host, raw_sync: sync }
         }
-    }
-
-    pub fn host(&self) -> &Arc<CompositorHost> {
-        &self.host
-    }
-
-    pub fn notify_input_ready(&self, reply_port: mach_port_t, token: u64, window_id: u64, x: f64, y: f64, dx: f64, dy: f64) -> Result<(), &'static str> {
-        input_wire::send_mouse_moved(reply_port, token, window_id, x, y, dx, dy)
-    }
-
-    pub fn acquire_ready_slot(&self) -> Option<u32> {
-        self.sync.acquire_read_slot()
-    }
-
-    pub fn release_slot(&self, slot_index: u32) -> bool {
-        self.sync.release_read_slot(slot_index)
     }
 }
 
 impl Drop for QmvServer {
     fn drop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        if let Some(handle) = self.poll_thread.take() {
-            let _ = handle.join();
+        unsafe {
+            qmv_compositor_host_destroy(self.raw_host);
+            qmv_shm_sync_destroy(self.raw_sync);
         }
     }
 }

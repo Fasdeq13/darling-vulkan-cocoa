@@ -1,4 +1,4 @@
-use crate::vulkan_backend::swapchain::SharedDevice;
+use crate::vulkan_backend::state_machine::SharedDevice;
 use ash::vk;
 use ash::Device;
 use thiserror::Error;
@@ -162,7 +162,7 @@ pub fn import_opaque_fd(
         .samples(vk::SampleCountFlags::TYPE_1)
         .tiling(vk::ImageTiling::OPTIMAL)
         .usage(
-            vk::ImageUsageFlags::SAMPLED
+            vk::ImageUsageFlags::SAMPLED_BIT
                 | vk::ImageUsageFlags::TRANSFER_DST
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,
         )
@@ -215,97 +215,7 @@ pub mod iosurface_import {
         fn IOSurfaceLookupFromMachPort(port: mach_port_t) -> *mut c_void;
         fn IOSurfaceGetWidth(surface: *mut c_void) -> usize;
         fn IOSurfaceGetHeight(surface: *mut c_void) -> usize;
-        fn IOSurfaceGetPixelFormat(surface: *mut c_void) -> u32;
-        fn IOSurfaceGetBytesPerRow(surface: *mut c_void) -> usize;
-        fn IOSurfaceRetain(surface: *mut c_void);
         fn IOSurfaceRelease(surface: *mut c_void);
-        fn IOSurfaceIsInUse(surface: *mut c_void) -> bool;
-    }
-
-    #[derive(Debug)]
-    pub struct ResolvedSurface {
-        pub surface_ref: *mut c_void,
-        pub width: u32,
-        pub height: u32,
-        pub bytes_per_row: u32,
-        pub pixel_format: u32,
-    }
-
-    unsafe impl Send for ResolvedSurface {}
-
-    impl Drop for ResolvedSurface {
-        fn drop(&mut self) {
-            if !self.surface_ref.is_null() {
-                unsafe { IOSurfaceRelease(self.surface_ref) };
-                self.surface_ref = std::ptr::null_mut();
-            }
-        }
-    }
-
-    impl ResolvedSurface {
-        pub fn is_in_use(&self) -> bool {
-            if self.surface_ref.is_null() {
-                false
-            } else {
-                unsafe { IOSurfaceIsInUse(self.surface_ref) }
-            }
-        }
-    }
-
-    pub fn resolve_from_mach_port(
-        port: mach_port_t,
-        expected_width: Option<u32>,
-        expected_height: Option<u32>,
-    ) -> Result<ResolvedSurface, ResourceError> {
-        if port == 0 {
-            return Err(ResourceError::ImportFailed("mach port is null"));
-        }
-
-        let surface_ref = unsafe { IOSurfaceLookupFromMachPort(port) };
-        if surface_ref.is_null() {
-            return Err(ResourceError::ImportFailed(
-                "IOSurfaceLookupFromMachPort returned null — invalid or expired Mach port",
-            ));
-        }
-
-        let width = unsafe { IOSurfaceGetWidth(surface_ref) } as u32;
-        let height = unsafe { IOSurfaceGetHeight(surface_ref) } as u32;
-        if width == 0 || height == 0 {
-            unsafe { IOSurfaceRelease(surface_ref) };
-            return Err(ResourceError::ImportFailed("IOSurface reported zero dimensions"));
-        }
-
-        if let (Some(ew), Some(eh)) = (expected_width, expected_height) {
-            if ew != 0 && eh != 0 && (width != ew || height != eh) {
-                unsafe { IOSurfaceRelease(surface_ref) };
-                return Err(ResourceError::ImportFailed(
-                    "IOSurface dimensions do not match the dimensions announced by the client",
-                ));
-            }
-        }
-
-        Ok(ResolvedSurface {
-            surface_ref,
-            width,
-            height,
-            bytes_per_row: unsafe { IOSurfaceGetBytesPerRow(surface_ref) } as u32,
-            pixel_format: unsafe { IOSurfaceGetPixelFormat(surface_ref) },
-        })
-    }
-
-    pub fn create_mach_port_for_surface(surface_ref: *mut c_void) -> mach_port_t {
-        #[link(name = "IOSurface", kind = "framework")]
-        extern "C" {
-            fn IOSurfaceCreateMachPort(surface: *mut c_void) -> mach_port_t;
-        }
-        if surface_ref.is_null() {
-            0
-        } else {
-            unsafe {
-                IOSurfaceRetain(surface_ref);
-                IOSurfaceCreateMachPort(surface_ref)
-            }
-        }
     }
 
     pub fn import_from_mach_port(
